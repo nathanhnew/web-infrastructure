@@ -1,0 +1,59 @@
+---
+- hosts: all
+  become: true
+  vars:
+    ubuntuRelease: bionic
+    userName: nate
+    userPublicKey: ~/.ssh/k8s-user-key.pub
+  tasks:
+#    Set up non-root user account
+  - name: Ensure group "docker" exists
+    group:
+      name: docker
+      state: present
+  - name: Ensure group "microk8s" exists
+    group:
+      name: microk8s
+      state: present
+  - name: Create user "{{ userName }}" with sudo and docker rights
+    user:
+      name: "{{ userName }}"
+      append: yes
+      groups: sudo,docker,microk8s
+      shell: /bin/bash
+  - name: Add authorized key for {{ userName }} user
+    authorized_key:
+      user: "{{ userName }}"
+      state: present
+      key: "{{ lookup('file', userPublicKey) }}"
+  - name: Alias kubectl for "{{ userName }}" user
+    lineinfile:
+      dest: /home/{{ userName }}/.bashrc
+      line: "alias kubectl='microk8s.kubectl'"
+  - name: Allow whell passwordless sudo
+    lineinfile:
+      path: /etc/sudoers
+      state: present
+      regexp: '^%sudo\s'
+      line: '%sudo ALL=(ALL:ALL) NOPASSWD: ALL'
+#   Install Docker
+  - name: Install aptitude using apt
+    apt: name=aptitude state=latest update_cache=yes force_apt_get=yes
+  - name: Install docker required packages
+    apt: name={{ item }} state=latest update_cache=yes
+    loop: ['apt-transport-https', 'ca-certificates', 'curl', 'software-properties-common', 'python3-pip', 'virtualenv', 'python3-setuptools']
+  - name: Add docker GPG apt key
+    apt_key:
+      url: https://download.docker.com/linux/ubuntu/gpg
+      state: present
+  - name: Add docker repo
+    apt_repository:
+      repo: deb https://download.docker.com/linux/ubuntu {{ ubuntuRelease }} stable
+      state: present
+  - name: Update apt and install docker-ce
+    apt: update_cache=yes name=docker-ce state=latest
+#  Install microk8s
+  - name: Install microk8s
+    snap:
+      name: microk8s
+      classic: yes
